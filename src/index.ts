@@ -3,12 +3,14 @@ import { type ModelMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createMockModel } from "./mock-model";
 import { createInterface } from "node:readline";
-import { agentLoop } from './agent/loop';
+import { agentLoop, type BudgetState } from './agent/loop';
 import { weatherTool, calculatorTool } from "./tools/utility-tools";
 
 
+
 const baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-const apiKey = process.env.DASHSCOPE_API_KEY;
+// const apiKey = process.env.DASHSCOPE_API_KEY;
+const apiKey:any=false;
 const qwen = createOpenAI({
   baseURL,
   apiKey,
@@ -22,6 +24,8 @@ const tools = {
   calculator: calculatorTool,
 };
 const messages: any[] = [];
+// 预算由调用方持有，跨轮持续累计——agentLoop 只负责消费它
+const budget: BudgetState = { used: 0, limit: 15000 };
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 
 const SYSTEM = `你是 Super Agent，一个有工具调用能力的 AI 助手。
@@ -40,11 +44,12 @@ const SYSTEM = `你是 Super Agent，一个有工具调用能力的 AI 助手。
     messages.push({ role: "user", content: trimmed });
 
 
-    await agentLoop(model, tools, messages, SYSTEM);
+    await agentLoop(model, tools, messages, SYSTEM, budget);
 
     ask();
   });
 }
 
-console.log('Super Agent v0.2 — Agent Loop (type "exit" to quit)\n');
+console.log('Super Agent v0.3 — Fuses (type "exit" to quit)\n');
+console.log('试试输入：“测试死循环”、“测试重试”、“测试预算” 看三层防护效果\n');
 ask();
