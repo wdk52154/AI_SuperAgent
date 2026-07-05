@@ -1,6 +1,6 @@
 import { streamText, type ModelMessage } from 'ai';
 import { detect, recordCall, recordResult, resetHistory } from '../loop-detection';
-// import { isRetryable, calculateDelay, sleep } from './retry.js';
+import { isRetryable, calculateDelay, sleep } from '../retry';
 
 const MAX_STEPS = 15;
 const MAX_RETRIES = 3;
@@ -28,13 +28,13 @@ export async function agentLoop(
     let fullText = '';
     let shouldBreak = false;
     let lastToolCall: { name: string; input: unknown } | null = null;
-    let stepResponse: any;
-    let stepUsage: any;
+    let stepResponse: Awaited<ReturnType<typeof streamText>['response']>;
+    let stepUsage: Awaited<ReturnType<typeof streamText>['usage']>;
 
+    // 步骤级重试：包裹整个 stream 消费过程
     for (let attempt = 1; ; attempt++) {
       try {
-        const result = streamText({ model, system, tools, messages, maxRetries: 0,
-          providerOptions: { openai: { parallelToolCalls: true } }, onError: () => {} });
+        const result = streamText({ model, system, tools, messages, maxRetries: 0, onError: () => {} });
 
         for await (const part of result.fullStream) {
           switch (part.type) {
@@ -81,7 +81,10 @@ export async function agentLoop(
         const delay = calculateDelay(attempt);
         console.log(`  [重试] 第 ${attempt}/${MAX_RETRIES} 次失败，${delay}ms 后重试...`);
         await sleep(delay);
-        hasToolCall = false; fullText = ''; shouldBreak = false; lastToolCall = null;
+        hasToolCall = false;
+        fullText = '';
+        shouldBreak = false;
+        lastToolCall = null;
       }
     }
 
@@ -90,9 +93,9 @@ export async function agentLoop(
       break;
     }
 
-    messages.push(...stepResponse.messages);
+    messages.push(...stepResponse!.messages);
 
-    // Token 预算追踪：budget 由调用方持有，跨轮累计
+    // Token 预算追踪：budget 由调用方持有，跨轮持续累计
     const inp = typeof stepUsage?.inputTokens === 'number' ? stepUsage.inputTokens : (stepUsage?.inputTokens?.total ?? 0);
     const out = typeof stepUsage?.outputTokens === 'number' ? stepUsage.outputTokens : (stepUsage?.outputTokens?.total ?? 0);
     budget.used += inp + out;
@@ -108,7 +111,7 @@ export async function agentLoop(
       break;
     }
 
-    console.log('  \u2192 继续下一步...');
+    console.log('  → 继续下一步...');
   }
 
   if (step >= MAX_STEPS) {
