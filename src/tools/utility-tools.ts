@@ -1,7 +1,6 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative, extname } from 'node:path';
 import { execSync } from 'node:child_process';
-// import fg from 'fast-glob';
 import { createServer, type Server } from 'node:http';
 import type { ToolDefinition } from '../tool-registry';
 
@@ -220,6 +219,7 @@ export const editFileTool: ToolDefinition = {
   },
 };
 
+
 export const globTool: ToolDefinition = {
   name: 'glob',
   description: '按模式搜索文件。支持 * 和 ** 通配符，如 "src/**/*.ts" 匹配 src 下所有 TypeScript 文件',
@@ -235,17 +235,41 @@ export const globTool: ToolDefinition = {
   isConcurrencySafe: true,
   isReadOnly: true,
   execute: async ({ pattern, path = '.' }: { pattern: string; path?: string }) => {
-    const results = await fg(pattern, {
-      cwd: resolve(path),
-      ignore: ['node_modules/**', '.git/**'],
-      dot: false,
-      onlyFiles: true,
-      followSymbolicLinks: false,
-    });
+    const baseDir = resolve(path);
+    const results: string[] = [];
+    const regexStr = pattern
+      .replace(/\./g, '\\.')
+      .replace(/\*\*/g, '<<<GLOBSTAR>>>')
+      .replace(/\*/g, '[^/]*')
+      .replace(/<<<GLOBSTAR>>>/g, '.*');
+    const regex = new RegExp(`^${regexStr}$`);
+
+    function walk(dir: string) {
+      if (results.length >= 100) return;
+      let entries: string[];
+      try { entries = readdirSync(dir); } catch { return; }
+
+      for (const name of entries) {
+        if (name === 'node_modules' || name === '.git') continue;
+        const full = join(dir, name);
+        const rel = relative(baseDir, full);
+        try {
+          const stat = statSync(full);
+          if (stat.isDirectory()) {
+            walk(full);
+          } else if (regex.test(rel)) {
+            results.push(rel);
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    walk(baseDir);
     if (results.length === 0) return `没有找到匹配 "${pattern}" 的文件`;
     return results.sort().join('\n');
   },
 };
+
 
 export const grepTool: ToolDefinition = {
   name: 'grep',
