@@ -4,7 +4,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  isConcurrencySafe?: boolean;// 是否可以并发调用，默认 false
+  isConcurrencySafe?: boolean;
   isReadOnly?: boolean;
   maxResultChars?: number;
   execute: (input: any) => Promise<unknown>;
