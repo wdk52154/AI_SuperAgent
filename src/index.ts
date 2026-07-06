@@ -4,25 +4,35 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createMockModel } from "./mock-model";
 import { createInterface } from "node:readline";
 import { agentLoop, type BudgetState } from './agent/loop';
-import { weatherTool, calculatorTool } from "./tools/utility-tools";
+import { weatherTool, calculatorTool, allTools } from "./tools/utility-tools";
+import { ToolRegistry } from "./tool-registry";
 
 
 
 const baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-// const apiKey = process.env.DASHSCOPE_API_KEY;
-const apiKey:any=false;
+const apiKey = process.env.DASHSCOPE_API_KEY;
+// const apiKey:any=false;  // 测试 mock 模型
 const qwen = createOpenAI({
   baseURL,
   apiKey,
 });
-
-
 const model: any = apiKey ? qwen.chat("qwen-plus-latest") : createMockModel();
 
-const tools = {
-  get_weather: weatherTool,
-  calculator: calculatorTool,
-};
+
+
+const registry = new ToolRegistry();
+registry.register(...allTools);
+
+console.log(`已注册 ${registry.getAll().length} 个工具：`);
+for (const tool of registry.getAll()) {
+  const flags = [
+    tool.isConcurrencySafe ? '可并发' : '串行',
+    tool.isReadOnly ? '只读' : '读写',
+  ].join(', ');
+  console.log(`  - ${tool.name}（${flags}）`);
+}
+
+
 const messages: any[] = [];
 // 预算由调用方持有，跨轮持续累计——agentLoop 只负责消费它
 const budget: BudgetState = { used: 0, limit: 15000 };
@@ -44,7 +54,7 @@ const SYSTEM = `你是 Super Agent，一个有工具调用能力的 AI 助手。
     messages.push({ role: "user", content: trimmed });
 
 
-    await agentLoop(model, tools, messages, SYSTEM, budget);
+    await agentLoop(model, registry, messages, SYSTEM, budget);
 
     ask();
   });
