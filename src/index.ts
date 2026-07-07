@@ -9,7 +9,7 @@ import { MCPClient, MockMCPClient } from "./tools/mcp-client";
 import { SessionStore } from './session/store';
 
 import { ToolRegistry, type ToolDefinition } from './tools/registry';
-import { coreRules, deferredTools, PromptBuilder, PromptContext, sessionContext, toolGuide } from "./context/ prompt-builder";
+import { coreRules, deferredTools, PromptBuilder, PromptContext, sessionContext, toolGuide } from "./context/prompt-builder";
 
 
 const baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
