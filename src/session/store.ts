@@ -27,6 +27,7 @@ export class SessionStore {
     return join(this.dir, `${this.sessionId}.jsonl`);
   }
 
+  //把一条消息追加写入 JSONL 文件，每条消息带时间戳
   append(message: ModelMessage): void {
     const entry: SessionEntry = {
       type: 'message',
@@ -42,6 +43,7 @@ export class SessionStore {
     }
   }
 
+  //读取文件，逐行解析，还原成 ModelMessage[]
   load(): ModelMessage[] {
     if (!existsSync(this.filePath)) return [];
 
@@ -62,7 +64,8 @@ export class SessionStore {
     }
     return messages;
   }
-
+  
+  //检查会话文件是否存在
   exists(): boolean {
     return existsSync(this.filePath);
   }

@@ -1,0 +1,4 @@
+{"type":"message","timestamp":"2026-07-07T04:31:39.545Z","message":{"role":"user","content":"哈咯"}}
+{"type":"message","timestamp":"2026-07-07T04:31:40.307Z","message":{"role":"assistant","content":[{"type":"text","text":"你好！有什么我可以帮你的吗？"}]}}
+{"type":"message","timestamp":"2026-07-07T04:31:43.445Z","message":{"role":"user","content":"你好"}}
+{"type":"message","timestamp":"2026-07-07T04:31:44.148Z","message":{"role":"assistant","content":[{"type":"text","text":"你好！有什么我可以帮你的吗？"}]}}
