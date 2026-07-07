@@ -211,11 +211,11 @@ async function main() {
 
   // Prompt Pipe 组装 system prompt
   const builder = new PromptBuilder()
-    .pipe("coreRules", coreRules())
-    .pipe("toolGuide", toolGuide())
-    .pipe("deferredTools", deferredTools())
-    .pipe("sessionContext", sessionContext());
-
+    .pipe("coreRules", coreRules()) //永远不变，放最前面，cache 稳稳命中
+    .pipe("toolGuide", toolGuide()) //工具数量基本固定，变化很少
+    .pipe("deferredTools", deferredTools()) //所有的工具列表也基本固定，放中间
+    .pipe("sessionContext", sessionContext()); //每次启动都不同，放最后面
+    
   const promptCtx: PromptContext = {
     toolCount: registry.getActiveTools().length,
     deferredToolSummary: registry.getDeferredToolSummary(),
@@ -224,9 +224,8 @@ async function main() {
   };
 
   const SYSTEM = builder.build(promptCtx);
-
-  // Debug: 显示 Prompt Pipe 各模块状态
-  builder.debug(promptCtx);
+  //debug() 输出让你一眼看到哪些 Pipe 是开的、哪些是关的
+  builder.debug(promptCtx);// 显示 Prompt Pipe 各模块状态
 
   const activeTools = registry.getActiveTools();
   console.log(`活跃工具: ${activeTools.length} 个`);

@@ -10,11 +10,13 @@ type PipeFn = (ctx: PromptContext) => string | null;
 export class PromptBuilder {
   private pipes: Array<{ name: string; fn: PipeFn }> = [];
 
+  // 注册一个 Pipe 模块。fn 返回字符串就加入 prompt，返回 null 就跳过
   pipe(name: string, fn: PipeFn): this {
     this.pipes.push({ name, fn });
     return this;
   }
 
+  //按注册顺序调用所有 Pipe，过滤掉 null，拼接成最终 prompt
   build(ctx: PromptContext): string {
     const sections: string[] = [];
 
