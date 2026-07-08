@@ -4,3 +4,5 @@
 - [typescript-preference](user_typescript-preference.md) — 我偏好 TypeScript 而不是 JavaScript
 - [old-build-config](project_old-build-config.md) — 旧的构建配置位置
 - [deploy-process-2](project_deploy-process-2.md) — 部署流程的备份说明
+
+- [db-caution](project_db-caution.md) — 数据库曾出事故，改表结构需谨慎
