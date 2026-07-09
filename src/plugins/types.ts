@@ -1,3 +1,4 @@
+import { ChannelDefinition } from '../channels/types.js';
 import type { ToolDefinition } from '../tools/registry.js';
 
 export interface PluginConfig {
@@ -6,6 +7,7 @@ export interface PluginConfig {
 
 export interface PluginApi {
   registerTools(tools: ToolDefinition[]): void;
+  registerChannel(channel: ChannelDefinition): void;  // 新增
   getConfig(): PluginConfig;
   log(message: string): void;
 }
