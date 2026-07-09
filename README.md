@@ -121,9 +121,6 @@
 ## 常用脚本
 
 ```bash
-# 开发模式（带热重载）
-pnpm run dev
-
 # 直接运行
 pnpm start
 
