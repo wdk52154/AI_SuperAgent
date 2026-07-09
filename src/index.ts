@@ -43,6 +43,9 @@ import { PluginManager } from "./plugins/manager";
 import { PluginDefinition } from "./plugins/types";
 import { supabasePlugin } from "./plugins/supabase-plugin";
 import { createPluginCommands } from "./commands/plugin";
+import { ChannelGateway } from "./channels/gateway";
+import { FeishuChannel } from "./channels/feishu";
+import { createChannelCommands } from "./commands/channel";
 
 const baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const apiKey = process.env.DASHSCOPE_API_KEY;
@@ -52,6 +55,7 @@ const qwen = createOpenAI({
   apiKey,
 });
 const model: any = apiKey ? qwen.chat("qwen-plus-latest") : createMockModel();
+
 
 // ── Registry ────────────────────────────────
 const registry = new ToolRegistry();
@@ -87,6 +91,31 @@ const availablePlugins = new Map<string, PluginDefinition>([
   ['supabase', supabasePlugin],
 ]);
 
+// ── Prompt Builder ────────────────────────────────
+const builder = new PromptBuilder()
+  .pipe('coreRules', coreRules())
+  .pipe('toolGuide', toolGuide())
+  .pipe('deferredTools', deferredTools())
+  .pipe('memoryContext', memoryContext(memoryStore))
+  .pipe('ragContext', ragContext(vectorStore))
+  .pipe('skillContext', () => skillLoader.buildPromptSection(activeSkills))
+  .pipe('sessionContext', sessionContext());
+
+// ── Channel Gateway ────────────────────────────────
+const gateway = new ChannelGateway({
+  model,
+  registry,
+  buildSystem: () => builder.build(makePromptCtx()),
+});
+
+const FEISHU_PORT = Number(process.env.FEISHU_PORT || '3000');
+const feishuChannel = new FeishuChannel({
+  appId: process.env.FEISHU_APP_ID || '',
+  appSecret: process.env.FEISHU_APP_SECRET || '',
+  port: FEISHU_PORT,
+});
+gateway.register(feishuChannel);
+
 // ── Commands ────────────────────────────────
 const dispatch = createDispatcher([
   ...debugCommands,
@@ -96,12 +125,22 @@ const dispatch = createDispatcher([
   ...dreamCommands,
   ...createSkillCommands(skillLoader, activeSkills),
   ...createPluginCommands(pluginManager, availablePlugins),
+  ...createChannelCommands(gateway),
 ]);
+
+function makePromptCtx(): PromptContext {
+  return {
+    toolCount: registry.getActiveTools().length,
+    deferredToolSummary: registry.getDeferredToolSummary(),
+    sessionMessageCount: 0,
+    sessionId: 'default',
+  };
+}
 
 async function main() {
   await connectMCP();
 
-  // 启动时自动加载插件
+  // 加载插件
   console.log('  加载插件...');
   for (const [name, def] of availablePlugins) {
     try {
@@ -112,36 +151,23 @@ async function main() {
     }
   }
 
+  // 启动 Channel
+  console.log('  启动 Channel...');
+  await gateway.startAll();
+
   const store = new SessionStore('default');
   let messages: ModelMessage[] = [];
   const timestamps = new Map<number, number>();
   const tracker = new UsageTracker('.usage/today.jsonl');
 
-  const builder = new PromptBuilder()
-    .pipe('coreRules', coreRules())
-    .pipe('toolGuide', toolGuide())
-    .pipe('deferredTools', deferredTools())
-    .pipe('memoryContext', memoryContext(memoryStore))
-    .pipe('ragContext', ragContext(vectorStore))
-    .pipe('skillContext', () => skillLoader.buildPromptSection(activeSkills))
-    .pipe('sessionContext', sessionContext());
-
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-
-  function makePromptCtx(): PromptContext {
-    return {
-      toolCount: registry.getActiveTools().length,
-      deferredToolSummary: registry.getDeferredToolSummary(),
-      sessionMessageCount: messages.length,
-      sessionId: 'default',
-    };
-  }
 
   function ask() {
     rl.question('\nYou: ', async (input) => {
       const trimmed = input.trim();
       if (!trimmed || trimmed === 'exit') {
         console.log('Bye!');
+        await gateway.stopAll();
         await pluginManager.unloadAll();
         rl.close();
         return;
@@ -175,30 +201,20 @@ async function main() {
     });
   }
 
-  console.log('Super Agent v0.15 — Plugins (type "exit" to quit)');
+  console.log('Super Agent v0.16 — Channel (type "exit" to quit)');
   console.log('快捷命令：');
-  console.log('  /plugin          — 查看插件状态');
-  console.log('  /plugin load X   — 加载插件');
-  console.log('  /plugin unload X — 卸载插件');
+  console.log('  /channel         — 查看通道状态');
+  console.log('  /plugin          — 查看插件');
   console.log('  /skill           — 查看 skills');
   console.log('  /memory          — 查看记忆');
   console.log('  /context         — context 占用矩阵');
-  console.log('  status           — 当前状态');
+  console.log('');
+  console.log(`  Dashboard: http://localhost:${FEISHU_PORT}`);
+  console.log('  打开浏览器发送测试消息，或在终端直接对话');
   console.log('');
 
-  const pluginList = pluginManager.list();
-  if (pluginList.length > 0) {
-    console.log(`  已加载 ${pluginList.length} 个插件：`);
-    for (const p of pluginList) {
-      console.log(`    ${p.name} — ${p.tools.join(', ')}`);
-    }
-    console.log('');
-  }
-
   if (loadedSkills.length > 0) {
-    console.log(`  发现 ${loadedSkills.length} 个 skill：`);
-    for (const s of loadedSkills) console.log(`    /${s.name} — ${s.description}`);
-    console.log('');
+    console.log(`  发现 ${loadedSkills.length} 个 skill`);
   }
 
   if (fs.existsSync('docs')) {
@@ -211,7 +227,6 @@ async function main() {
         const chunks = chunkDocument(path, text);
         const embeddings = await embed(embedFn, chunks.map(c => c.text));
         vectorStore.addBatch(chunks.map((c, i) => ({ chunk: c, embedding: embeddings[i] })));
-        console.log(`    ${f} → ${chunks.length} 个片段`);
       }
       console.log(`  知识库就绪，共 ${vectorStore.size()} 个片段\n`);
     }
