@@ -8,6 +8,7 @@ export interface PluginConfig {
 export interface PluginApi {
   registerTools(tools: ToolDefinition[]): void;
   registerChannel(channel: ChannelDefinition): void;  // 新增
+  registerTelegramChannels(channels: ChannelDefinition[]): void;  // 新增
   getConfig(): PluginConfig;
   log(message: string): void;
 }
