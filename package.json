@@ -2,8 +2,12 @@
   "name": "AI_Harness_SuperAgent_kkdw",
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "super-agent": "src/index.ts"
+  },
   "scripts": {
     "start": "tsx src/index.ts",
+    "init": "tsx src/index.ts init",
     "continue": "tsx src/index.ts --continue"
   },
   "dependencies": {
