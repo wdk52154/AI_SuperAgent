@@ -2,6 +2,11 @@ import { createInterface } from 'node:readline';
 import fs from 'node:fs';
 import { CONFIG_FILE } from './loader.js';
 
+/* 
+   用户第一次用 Super Agent，不应该让他手动写 JSON。一个交互式的 init 命令能引导用户走完所有关键配置。
+   init 生成两个文件：super-agent.config.json 和 .env。API Key 如果用户直接输入了就写进 .env，
+   配置文件里用 ${DASHSCOPE_API_KEY} 引用。飞书的 App ID 和 App Secret 同理。
+*/
 export async function runInit() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q: string): Promise<string> =>

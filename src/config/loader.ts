@@ -27,6 +27,10 @@ function substituteEnvVars(obj: unknown): unknown {
   return obj;
 }
 
+
+/* 
+   做了四件事：读取 JSON → 替换 ${ENV_VAR} → Zod 校验 + 默认值合并
+*/
 export function loadConfig(path = CONFIG_FILE): SuperAgentConfig {
   if (!fs.existsSync(path)) {
     console.log(`  未找到 ${path}，使用默认配置`);
