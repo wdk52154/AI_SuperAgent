@@ -1,4 +1,5 @@
 ---
+lastReadAt: 1783710406116
 name: db-caution
 description: 数据库曾出事故，改表结构需谨慎
 type: project
