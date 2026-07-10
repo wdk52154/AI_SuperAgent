@@ -93,6 +93,8 @@ const availablePlugins = new Map<string, PluginDefinition>([
   ['supabase', supabasePlugin],
 ]);
 
+//注册两个hook感受一下
+//整个执行顺序是：角色过滤 → bash classifier → pre hook → 工具执行 → post hook
 // ── Security: Hook Pipeline ────────────────────────────────
 const hookPipeline = new HookPipeline();
 
