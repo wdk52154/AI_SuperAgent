@@ -2,7 +2,7 @@
 
 > 本文档基于当前 `src/` 目录的实际结构生成，用于快速了解 Super Agent 各模块的职责划分。
 >
-> 当前版本：v0.19 — 已集成 Sub-Agent 子代理、Cron 定时任务、Channel 多通道、权限与 Hook 管线等能力。
+> 当前版本：v0.20 — 已集成配置系统、CLI 入口、Sub-Agent 子代理、Cron 定时任务、Channel 多通道、权限与 Hook 管线等能力。
 
 ---
 
@@ -28,18 +28,20 @@
 │   └── deployment-guide.md
 ├── package.json                  # 项目依赖与脚本
 ├── pnpm-lock.yaml                # pnpm 锁定文件
-├── pnpm-workspace.yaml           # pnpm 工作区配置
 ├── sample-project/               # 示例项目（用于代码分析 Demo）
 │   ├── api.ts
 │   ├── auth.ts
 │   └── utils.ts
+├── super-agent.config.json       # 本地配置文件（运行 pnpm run init 生成，不提交 Git）
 ├── src/                          # 主源码目录
-│   ├── index.ts                  # 应用入口
+│   ├── index.ts                  # CLI 入口。根据命令行参数分发 init 或 start。
+│   ├── main.ts                   # Agent 主逻辑。加载配置、初始化模型、注册工具、启动交互循环。
 │   ├── mock-model.ts             # Mock 模型实现
 │   ├── agent/                    # Agent Loop 相关
 │   ├── agents/                   # Sub-Agent 子代理机制
 │   ├── channels/                 # 多通道接入（飞书等）
 │   ├── commands/                 # 终端快捷命令
+│   ├── config/                   # 配置系统
 │   ├── context/                  # Prompt 与上下文管理
 │   ├── cron/                     # 定时任务系统
 │   ├── memory/                   # 记忆持久化与整理
@@ -62,7 +64,8 @@
 
 | 文件 | 职责 |
 |------|------|
-| `src/index.ts` | 应用入口。负责初始化模型、注册工具、连接 MCP Server、加载/保存会话、组装 System Prompt、启动 Channel 网关、Cron 服务以及交互式问答循环。 |
+| `src/index.ts` | CLI 入口。根据 `process.argv[2]` 分发：传入 `init` 时执行初始化向导，否则启动 Agent。 |
+| `src/main.ts` | Agent 主逻辑。调用 `loadConfig()` 加载配置，初始化模型与工具注册表、连接 MCP Server、加载插件与 Skill、启动 Channel 网关和 Cron 服务，进入交互式问答循环。 |
 | `src/mock-model.ts` | Mock 模型实现。在没有真实 API Key 时模拟模型行为，支持天气、文件操作、网页抓取、Vibe Coding 等 Demo 场景。 |
 
 ### `src/agent/` — Agent Loop 相关
@@ -88,6 +91,14 @@
 | `src/channels/gateway.ts` | Channel 网关。统一管理多个消息通道的生命周期与消息分发。 |
 | `src/channels/feishu.ts` | 飞书通道。基于 Hono 提供 Webhook 接入，让 Agent 可以"活在"飞书群里。 |
 | `src/channels/types.ts` | Channel 抽象类型定义。 |
+
+### `src/config/` — 配置系统
+
+| 文件 | 职责 |
+|------|------|
+| `src/config/schema.ts` | 配置 Schema。使用 Zod v4 定义模型、插件、通道、子代理、安全、记忆、RAG、Cron、会话、用量等配置项，并给出完整默认值。 |
+| `src/config/loader.ts` | 配置加载器。读取 `super-agent.config.json`，替换 `${ENV_VAR}` 形式的环境变量，经 Zod 校验后返回最终配置；文件不存在时回退到默认配置。 |
+| `src/config/init.ts` | 初始化向导。通过交互式问答生成 `super-agent.config.json` 与 `.env`，引导用户配置模型、API Key、飞书 Channel、子代理并发数等。 |
 
 ### `src/commands/` — 终端快捷命令
 
@@ -216,12 +227,12 @@
 │ mock-  │  │ MCPClient│  │ memory/   │  │  security/  │  │   plugins/   │
 │ model  │  │ Registry │  │ rag/      │  │  skills/    │  │   usage/     │
 └────────┘  └──────────┘  └───────────┘  └─────────────┘  └──────────────┘
-                                  │
-                                  ▼
-                          ┌───────────────┐
-                          │   agents/     │
-                          │  Sub-Agent    │
-                          └───────────────┘
+    │                              │
+    ▼                              ▼
+┌─────────┐              ┌───────────────┐
+│ config/ │              │   agents/     │
+│ loader  │              │  Sub-Agent    │
+└─────────┘              └───────────────┘
 ```
 
 ---
@@ -229,6 +240,9 @@
 ## 常用脚本
 
 ```bash
+# 初始化配置文件
+pnpm run init
+
 # 直接运行
 pnpm start
 
