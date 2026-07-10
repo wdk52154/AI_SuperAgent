@@ -1,10 +1,10 @@
-*.log
 node_modules/
 pnpm-lock.yaml
 pnpm-workspace.yaml
 knowledge.db
+.sessions/
+.cron/
+super-agent.config.json
 *.env
 *.sessions
 *.usage
-.sessions/
-.cron/
