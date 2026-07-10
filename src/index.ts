@@ -48,6 +48,10 @@ import { FeishuChannel } from "./channels/feishu";
 import { createChannelCommands } from "./commands/channel";
 import { HookPipeline } from "./security/hooks";
 import { createSecurityCommands } from "./commands/security";
+import { CronService } from "./cron/service";
+import { createCronTool } from "./tools/cron-tools";
+import { createCronCommands } from "./commands/cron";
+import { any } from "zod";
 
 const baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const apiKey = process.env.DASHSCOPE_API_KEY;
@@ -58,19 +62,15 @@ const qwen = createOpenAI({
 });
 const model: any = apiKey ? qwen.chat("qwen-plus-latest") : createMockModel();
 
-
-// ── Registry ────────────────────────────────
 const registry = new ToolRegistry();
 registry.register(...allTools);
 registry.register(createToolSearchTool(registry));
 
-// ── Memory ────────────────────────────────
 const memoryStore = new MemoryStore('.');
 memoryStore.init();
 registry.register(createMemoryTool(memoryStore));
 
-// ── RAG ────────────────────────────────
-const vectorStore:any = new VectorStore();
+const vectorStore: any = new VectorStore();
 const embedFn = process.env.DASHSCOPE_API_KEY
   ? createDashScopeEmbedder(process.env.DASHSCOPE_API_KEY)
   : createMockEmbedder();
@@ -82,23 +82,17 @@ async function connectMCP() {
   console.log(`  已注册 ${tools.length} 个 Mock MCP 工具`);
 }
 
-// ── Skills ────────────────────────────────
 const skillLoader = new SkillLoader('.');
 const loadedSkills = skillLoader.load();
 const activeSkills = new Set<string>();
 
-// ── Plugins ────────────────────────────────
 const pluginManager = new PluginManager(registry);
 const availablePlugins = new Map<string, PluginDefinition>([
   ['supabase', supabasePlugin],
 ]);
 
-//注册两个hook感受一下
-//整个执行顺序是：角色过滤 → bash classifier → pre hook → 工具执行 → post hook
-// ── Security: Hook Pipeline ────────────────────────────────
-const hookPipeline = new HookPipeline();//创建管线实例
+const hookPipeline = new HookPipeline();
 
-// 示例 Pre Hook: 写文件前记录日志
 hookPipeline.registerPre('audit-log', (toolName, input) => {
   if (toolName === 'write_file' || toolName === 'edit_file') {
     const path = (input as any)?.path || 'unknown';
@@ -107,21 +101,20 @@ hookPipeline.registerPre('audit-log', (toolName, input) => {
   return { action: 'allow' };
 });
 
-// 示例 Post Hook: 给 bash 输出加时间戳
 hookPipeline.registerPost('bash-timestamp', (toolName, _input, output) => {
   if (toolName === 'bash') {
     const timestamp = new Date().toISOString();
-    return {
-      action: 'modify',
-      modifiedOutput: `[${timestamp}]\n${output}`,
-    };
+    return { action: 'modify', modifiedOutput: `[${timestamp}]\n${output}` };
   }
   return { action: 'allow' };
 });
 
-registry.setHookPipeline(hookPipeline);//让工具执行流程能调用 hook
+registry.setHookPipeline(hookPipeline);
 
-// ── Prompt Builder ────────────────────────────────
+// ── Cron Service ────────────────────────────────
+const cronService = new CronService('.');
+registry.register(createCronTool(cronService));
+
 const builder = new PromptBuilder()
   .pipe('coreRules', coreRules())
   .pipe('toolGuide', toolGuide())
@@ -131,11 +124,8 @@ const builder = new PromptBuilder()
   .pipe('skillContext', () => skillLoader.buildPromptSection(activeSkills))
   .pipe('sessionContext', sessionContext());
 
-// ── Channel Gateway ────────────────────────────────
 const gateway = new ChannelGateway({
-  model,
-  registry,
-  buildSystem: () => builder.build(makePromptCtx()),
+  model, registry, buildSystem: () => builder.build(makePromptCtx()),
 });
 
 const FEISHU_PORT = Number(process.env.FEISHU_PORT || '3000');
@@ -146,51 +136,62 @@ const feishuChannel = new FeishuChannel({
 });
 gateway.register(feishuChannel);
 
-// ── Commands ────────────────────────────────
 const dispatch = createDispatcher([
-  ...debugCommands,
-  ...contextCommands,
-  ...memoryCommands,
-  ...ragCommands,
-  ...dreamCommands,
+  ...debugCommands, ...contextCommands, ...memoryCommands,
+  ...ragCommands, ...dreamCommands,
   ...createSkillCommands(skillLoader, activeSkills),
   ...createPluginCommands(pluginManager, availablePlugins),
   ...createChannelCommands(gateway),
-  ...createSecurityCommands(registry, hookPipeline),//注册 /role 和 /hooks 命令。
+  ...createSecurityCommands(registry, hookPipeline),
+  ...createCronCommands(cronService),
 ]);
 
 function makePromptCtx(): PromptContext {
   return {
     toolCount: registry.getActiveTools().length,
     deferredToolSummary: registry.getDeferredToolSummary(),
-    sessionMessageCount: 0,
-    sessionId: 'default',
+    sessionMessageCount: 0, sessionId: 'default',
   };
 }
 
 async function main() {
   await connectMCP();
-
-  // 加载插件
   console.log('  加载插件...');
   for (const [name, def] of availablePlugins) {
-    try {
-      const tools = await pluginManager.load(def);
-      console.log(`  ✓ ${name} — ${tools.length} 个工具`);
-    } catch {
-      console.log(`  ✗ ${name} — 加载失败`);
-    }
+    try { const tools = await pluginManager.load(def); console.log(`  ✓ ${name} — ${tools.length} 个工具`); }
+    catch { console.log(`  ✗ ${name} — 加载失败`); }
   }
 
-  // 启动 Channel
   console.log('  启动 Channel...');
   await gateway.startAll();
+
+  cronService.load();
+  cronService.setExecutor({
+    runAgentPrompt: async (prompt, timeout) => {
+      const cronMessages: ModelMessage[] = [{ role: 'user', content: prompt }];
+      const system = builder.build(makePromptCtx());
+      await agentLoop(model, registry, cronMessages, system);
+      const lastMsg = cronMessages[cronMessages.length - 1];
+      if (!lastMsg) return '(无输出)';
+      if (typeof lastMsg.content === 'string') return lastMsg.content;
+      if (Array.isArray(lastMsg.content)) {
+        return lastMsg.content
+          .filter((p: any) => p.type === 'text')
+          .map((p: any) => p.text)
+          .join('') || '(无输出)';
+      }
+      return String(lastMsg.content);
+    },
+    notify: (message) => { console.log(`\n${message}`); },
+  });
+  cronService.start();
+  const cronJobs = cronService.list();
+  console.log(`  Cron: ${cronJobs.length} 个任务已加载`);
 
   const store = new SessionStore('default');
   let messages: ModelMessage[] = [];
   const timestamps = new Map<number, number>();
   const tracker = new UsageTracker('.usage/today.jsonl');
-
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   function ask() {
@@ -198,17 +199,13 @@ async function main() {
       const trimmed = input.trim();
       if (!trimmed || trimmed === 'exit') {
         console.log('Bye!');
+        cronService.stop();
         await gateway.stopAll();
         await pluginManager.unloadAll();
         rl.close();
         return;
       }
-
-      const ctx: CommandContext = {
-        messages, timestamps, registry, builder, tracker,
-        sessionStore: store, model, makePromptCtx, ask,
-        memoryStore, vectorStore,
-      };
+      const ctx: CommandContext = { messages, timestamps, registry, builder, tracker, sessionStore: store, model, makePromptCtx, ask, memoryStore, vectorStore };
       const handled = dispatch(trimmed, ctx);
       if (handled === 'async') return;
       if (handled) { ask(); return; }
@@ -226,7 +223,6 @@ async function main() {
       const now = Date.now();
       for (let i = beforeLen; i < messages.length; i++) timestamps.set(i, now);
       store.appendAll(newMessages);
-
       console.log(`  [Token] ~${estimateMessageTokens(messages)} tokens`);
       ask();
     });
@@ -236,22 +232,21 @@ async function main() {
   const toolCount = registry.getActiveTools().length;
   const hooks = hookPipeline.list();
 
-  console.log('Super Agent v0.17 — Permissions & Hooks (type "exit" to quit)');
+  console.log('Super Agent v0.18 — Cron 定时任务 (type "exit" to quit)');
   console.log('快捷命令：');
-  console.log('  /role [角色]      — 查看/切换角色 (owner|collaborator|guest)');
+  console.log('  /cron             — 查看定时任务');
+  console.log('  /cron logs        — 查看执行记录');
+  console.log('  /role [角色]      — 查看/切换角色');
   console.log('  /hooks            — 查看 Hook 管线');
-  console.log('  /channel          — 查看通道');
-  console.log('  /plugin           — 查看插件');
-  console.log('  /skill            — 查看 skills');
-  console.log('  /memory           — 查看记忆');
   console.log('');
   console.log(`  当前角色: ${role}，可用工具: ${toolCount} 个`);
   console.log(`  Hook: ${hooks.pre.length} 个 pre + ${hooks.post.length} 个 post`);
+  console.log(`  Cron: ${cronJobs.length} 个定时任务`);
   console.log('');
   console.log('  试试：');
-  console.log('    /role guest        — 切换到 guest，bash 等工具被禁用');
-  console.log('    测试bash           — 执行 echo，会触发 post hook 加时间戳');
-  console.log('    测试危险命令        — 模型尝试 rm -rf，会被 bash classifier 拦截');
+  console.log('    让 Agent 创建一个每 30 秒执行的定时任务');
+  console.log('    /cron         — 查看当前任务列表');
+  console.log('    /cron logs    — 查看执行记录');
   console.log('');
 
   if (fs.existsSync('docs')) {
@@ -268,7 +263,6 @@ async function main() {
       console.log(`  知识库就绪，共 ${vectorStore.size()} 个片段\n`);
     }
   }
-
   ask();
 }
 
