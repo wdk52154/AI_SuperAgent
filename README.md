@@ -2,7 +2,7 @@
 
 > 本文档基于当前 `src/` 目录的实际结构生成，用于快速了解 Super Agent 各模块的职责划分。
 >
-> 当前版本：v0.18 — 已集成 Cron 定时任务、Channel 多通道、权限与 Hook 管线等能力。
+> 当前版本：v0.19 — 已集成 Sub-Agent 子代理、Cron 定时任务、Channel 多通道、权限与 Hook 管线等能力。
 
 ---
 
@@ -37,6 +37,7 @@
 │   ├── index.ts                  # 应用入口
 │   ├── mock-model.ts             # Mock 模型实现
 │   ├── agent/                    # Agent Loop 相关
+│   ├── agents/                   # Sub-Agent 子代理机制
 │   ├── channels/                 # 多通道接入（飞书等）
 │   ├── commands/                 # 终端快捷命令
 │   ├── context/                  # Prompt 与上下文管理
@@ -72,6 +73,14 @@
 | `src/agent/loop-detection.ts` | 循环检测。通过滑动窗口记录工具调用历史，检测重复调用、乒乓循环，并提供熔断机制。 |
 | `src/agent/retry.ts` | 重试策略。根据错误类型判断是否可重试，并实现指数退避 + 抖动延迟。 |
 
+### `src/agents/` — Sub-Agent 子代理机制
+
+| 文件 | 职责 |
+|------|------|
+| `src/agents/types.ts` | 子代理类型与默认配置。定义 `SubAgentConfig`、`SpawnRequest`、`SubAgentRun` 等类型，默认最大嵌套深度 1、最大并发 3、超时 60s。 |
+| `src/agents/registry.ts` | 子代理注册表。管理所有子代理运行记录，提供 ID 生成、深度与并发检查、状态流转（running/completed/error/timeout）查询。 |
+| `src/agents/spawn.ts` | 子代理执行引擎。实现 `spawnAgent` 单任务执行与 `spawnParallel` 并行派发，支持独立上下文、彩色日志标签、最大 30 步、超时熔断及部分结果返回。 |
+
 ### `src/channels/` — 多通道接入
 
 | 文件 | 职责 |
@@ -95,6 +104,7 @@
 | `src/commands/rag.ts` | `/rag` 相关命令：管理知识库。 |
 | `src/commands/security.ts` | `/role`、`/hooks` 等安全与 Hook 相关命令。 |
 | `src/commands/skill.ts` | `/skill` 相关命令：查看与激活 Skill。 |
+| `src/commands/agents.ts` | `/agents` 命令：查看子 Agent 运行记录、活跃数、最大深度与并发配置。 |
 
 ### `src/context/` — Prompt 与上下文管理
 
@@ -178,6 +188,7 @@
 | `src/tools/memory-tools.ts` | 记忆类工具。供 Agent 读取、写入、搜索记忆。 |
 | `src/tools/rag-tools.ts` | RAG 类工具。供 Agent 检索知识库。 |
 | `src/tools/cron-tools.ts` | Cron 类工具。供 Agent 创建、删除、查看定时任务。 |
+| `src/tools/spawn-tools.ts` | 子代理工具。提供 `spawn_agent`，支持派发单个子 Agent 或并行派发多个子 Agent 执行任务。 |
 
 ### `src/usage/` — Prompt Cache 与成本追踪
 
@@ -205,6 +216,12 @@
 │ mock-  │  │ MCPClient│  │ memory/   │  │  security/  │  │   plugins/   │
 │ model  │  │ Registry │  │ rag/      │  │  skills/    │  │   usage/     │
 └────────┘  └──────────┘  └───────────┘  └─────────────┘  └──────────────┘
+                                  │
+                                  ▼
+                          ┌───────────────┐
+                          │   agents/     │
+                          │  Sub-Agent    │
+                          └───────────────┘
 ```
 
 ---
@@ -236,6 +253,7 @@ pnpm run continue
 | `/plugin ...` | 加载、卸载、查看插件 |
 | `/channel ...` | 管理消息通道 |
 | `/cron` / `/cron logs` | 查看定时任务与执行日志 |
+| `/agents` | 查看子 Agent 运行记录与并发/深度配置 |
 | `/context` | 查看上下文视图 |
 | `/debug` | 调试信息 |
 
