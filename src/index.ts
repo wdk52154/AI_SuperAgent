@@ -96,7 +96,7 @@ const availablePlugins = new Map<string, PluginDefinition>([
 //注册两个hook感受一下
 //整个执行顺序是：角色过滤 → bash classifier → pre hook → 工具执行 → post hook
 // ── Security: Hook Pipeline ────────────────────────────────
-const hookPipeline = new HookPipeline();
+const hookPipeline = new HookPipeline();//创建管线实例
 
 // 示例 Pre Hook: 写文件前记录日志
 hookPipeline.registerPre('audit-log', (toolName, input) => {
@@ -119,7 +119,7 @@ hookPipeline.registerPost('bash-timestamp', (toolName, _input, output) => {
   return { action: 'allow' };
 });
 
-registry.setHookPipeline(hookPipeline);
+registry.setHookPipeline(hookPipeline);//让工具执行流程能调用 hook
 
 // ── Prompt Builder ────────────────────────────────
 const builder = new PromptBuilder()
@@ -156,7 +156,7 @@ const dispatch = createDispatcher([
   ...createSkillCommands(skillLoader, activeSkills),
   ...createPluginCommands(pluginManager, availablePlugins),
   ...createChannelCommands(gateway),
-  ...createSecurityCommands(registry, hookPipeline),
+  ...createSecurityCommands(registry, hookPipeline),//注册 /role 和 /hooks 命令。
 ]);
 
 function makePromptCtx(): PromptContext {
